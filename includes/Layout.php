@@ -16,33 +16,36 @@ class Layout
     public function __construct()
     {
 
-        add_filter('pre_get_posts', [$this, 'makeFaqSortable']);
-        add_filter('enter_title_here', [$this, 'changeTitleText']);
+        add_filter('pre_get_posts', [$this, 'makeSortable']); // OK
+        add_filter('enter_title_here', [$this, 'changeTitleText']); // OK
         // show content in box if not editable ( = source is not "website" )
-        add_action('admin_menu', [$this, 'toggleEditor']);
+        add_action('admin_menu', [$this, 'toggleEditor']); // 2DO
+
         // Table "All FAQ"
-        add_filter('manage_faq_posts_columns', [$this, 'addFaqColumns']);
-        add_action('manage_faq_posts_custom_column', [$this, 'getFaqColumnsValues'], 10, 2);
-        add_filter('manage_edit-faq_sortable_columns', [$this, 'addFaqSortableColumns']);
         add_action('restrict_manage_posts', [$this, 'addFaqFilters'], 10, 1);
         add_filter('parse_query', [$this, 'filterRequestQuery'], 10);
 
-        // Table "Category"
-        add_filter('manage_edit-faq_category_columns', [$this, 'addTaxColumns']);
-        add_filter('manage_faq_category_custom_column', [$this, 'getTaxColumnsValues'], 10, 3);
-        add_filter('manage_edit-faq_category_sortable_columns', [$this, 'addTaxColumns']);
-        // Table "Tags"
-        add_filter('manage_edit-faq_tag_columns', [$this, 'addTaxColumns']);
-        add_filter('manage_faq_tag_custom_column', [$this, 'getTaxColumnsValues'], 10, 3);
-        add_filter('manage_edit-faq_tag_sortable_columns', [$this, 'addTaxColumns']);
-        add_action('save_post_faq', [$this, 'savePostMeta']);
+        foreach (CPT as $cpt => $aDetails) {
+            // Table "All FAQ" or "All glossaries" or "All synonyms"
+            add_filter('manage_' . $cpt . '_posts_columns', [$this, 'addColumns']);
+            add_action('manage_' . $cpt . '_posts_custom_column', [$this, 'getFaqColumnsValues'], 10, 2);
+            add_filter('manage_edit-' . $cpt . '_sortable_columns', [$this, 'addFaqSortableColumns']);
+            add_action('save_post_' . $cpt, [$this, 'savePostMeta']);
+
+            foreach ($aDetails['aTaxonomy'] as $aTaxonomy) {
+                // Table "Category" or "Tag"
+                add_filter('manage_edit-' . $aTaxonomy['taxonomy'] . '_columns', [$this, 'addTaxColumns']);
+                add_filter('manage_' . $aTaxonomy['taxonomy'] . '_custom_column', [$this, 'getTaxColumnsValues'], 10, 3);
+                add_filter('manage_edit-' . $aTaxonomy['taxonomy'] . '_sortable_columns', [$this, 'addTaxColumns']);
+            }
+        }
     }
 
-    public function makeFaqSortable($wp_query)
+    public function makeSortable($wp_query)
     {
         if (is_admin() && !empty($wp_query->query['post_type'])) {
             $post_type = $wp_query->query['post_type'];
-            if ($post_type == 'faq') {
+            if (in_array($post_type, array_keys(CPT))) {
                 if (!isset($wp_query->query['orderby'])) {
                     $wp_query->set('orderby', 'title');
                     $wp_query->set('order', 'ASC');
@@ -137,8 +140,10 @@ class Layout
     public function toggleEditor()
     {
         $post_id = (isset($_GET['post']) ? $_GET['post'] : (isset($_POST['post_ID']) ? $_POST['post_ID'] : 0));
+
         if ($post_id) {
-            if (get_post_type($post_id) == 'faq') {
+            $postType = get_post_type($post_id);
+            if (in_array($postType, array_keys(CPT))) {
                 $source = get_post_meta($post_id, "source", true);
                 if ($source) {
                     if ($source != 'website') {
@@ -146,9 +151,9 @@ class Layout
                         $domains = $api->getDomains();
                         $remoteID = get_post_meta($post_id, "remoteID", true);
                         $link = $domains[$source] . 'wp-admin/post.php?post=' . $remoteID . '&action=edit';
-                        remove_post_type_support('faq', 'title');
-                        remove_post_type_support('faq', 'editor');
-                        remove_meta_box('faq_categorydiv', 'faq', 'side');
+                        remove_post_type_support($postType, 'title');
+                        remove_post_type_support($postType, 'editor');
+                        remove_meta_box('faq_categorydiv', $postType, 'side');
                         remove_meta_box('tagsdiv-faq_tag', 'faq', 'side');
                         // remove_meta_box( 'submitdiv', 'faq', 'side' ); 2020-25-05 : we need submitdiv because of sortbox
                         add_meta_box(
@@ -196,7 +201,7 @@ class Layout
         );
     }
 
-    public function addFaqColumns($columns)
+    public function addColumns($columns)
     {
         $columns['lang'] = __('Language', 'rrze-lexikon');
         $columns['sortfield'] = __('Sort criterion', 'rrze-lexikon');
@@ -218,7 +223,7 @@ class Layout
 
     public function addFaqFilters($post_type)
     {
-        if ($post_type !== 'faq') {
+        if (!in_array($post_type, array_keys(CPT))) {
             return;
         }
         $taxonomies_slugs = array(
@@ -228,17 +233,19 @@ class Layout
         foreach ($taxonomies_slugs as $slug) {
             $taxonomy = get_taxonomy($slug);
             $selected = (isset($_REQUEST[$slug]) ? $_REQUEST[$slug] : '');
-            wp_dropdown_categories(array(
-                'show_option_all' => $taxonomy->labels->all_items,
-                'taxonomy' => $slug,
-                'name' => $slug,
-                'orderby' => 'name',
-                'value_field' => 'slug',
-                'selected' => $selected,
-                'hierarchical' => true,
-                'hide_empty' => true,
-                'show_count' => true,
-            ));
+            wp_dropdown_categories(
+                array(
+                    'show_option_all' => $taxonomy->labels->all_items,
+                    'taxonomy' => $slug,
+                    'name' => $slug,
+                    'orderby' => 'name',
+                    'value_field' => 'slug',
+                    'selected' => $selected,
+                    'hierarchical' => true,
+                    'hide_empty' => true,
+                    'show_count' => true,
+                )
+            );
         }
 
         // dropdown "source"
