@@ -1,2 +1,2 @@
 # rrze-lex
-combines rrze-faq, rrze-glossary and rrze-synonym
+combines rrze-lexikon, rrze-glossary and rrze-synonym
